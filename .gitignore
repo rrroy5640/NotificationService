@@ -1,0 +1,16 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio files
+.vs/
+
+# User-specific files
+*.user
+
+# appsettings
+appsettings.Development.json
+appsettings.Production.json
+
+# macOS
+.DS_Store
