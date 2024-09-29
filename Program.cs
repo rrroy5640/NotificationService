@@ -18,6 +18,10 @@ var awsParameterStore = builder.Configuration.GetSection("AWS:ParameterStore");
 builder.Services.AddAWSService<IAmazonSimpleSystemsManagement>();
 builder.Services.AddAWSService<IAmazonSQS>();
 
+var awsOptions = builder.Configuration.GetAWSOptions();
+var ssmClient = awsOptions.CreateServiceClient<IAmazonSimpleSystemsManagement>();
+var sqsClient = awsOptions.CreateServiceClient<IAmazonSQS>();
+
 var dbConnectionStringPath = awsParameterStore["DbConnectionStringPath"];
 var dbNamePath = awsParameterStore["DbNamePath"];
 var sqsUrlPath = awsParameterStore["SQSUrlPath"];
@@ -27,9 +31,11 @@ if (string.IsNullOrEmpty(dbConnectionStringPath) || string.IsNullOrEmpty(dbNameP
     throw new Exception("Missing configuration");
 }
 
-await ConfigureDatabase(builder);
-await ConfigureSQS(builder);
+var dbConnectionString = await ssmClient.GetParameterAsync(new GetParameterRequest { Name = dbConnectionStringPath });
+var dbName = await ssmClient.GetParameterAsync(new GetParameterRequest { Name = dbNamePath });
+var sqsUrl = await ssmClient.GetParameterAsync(new GetParameterRequest { Name = sqsUrlPath });
 
+await ConfigureDatabase(builder, dbConnectionString.Parameter.Value, dbName.Parameter.Value);
 builder.Services.AddHostedService<MessageProcessingService>();
 
 var app = builder.Build();
@@ -44,32 +50,27 @@ app.UseHttpsRedirection();
 
 app.Run();
 
-async Task ConfigureDatabase(WebApplicationBuilder builder)
-{
-    var ssmClient = builder.Services.BuildServiceProvider().GetRequiredService<IAmazonSimpleSystemsManagement>();
-    var connectionStringResponse = await ssmClient.GetParameterAsync(new GetParameterRequest { Name = dbConnectionStringPath, WithDecryption = true });
-    var dbNameResponse = await ssmClient.GetParameterAsync(new GetParameterRequest { Name = dbNamePath, WithDecryption = true });
-
-    builder.Services.Configure<MongoDBSettings>(options =>
+async Task ConfigureDatabase(WebApplicationBuilder builder, string dbConnectionString, string dbName){
+    builder.Services.AddSingleton<IMongoDBSettings>(sp =>
     {
-        options.ConnectionString = connectionStringResponse.Parameter.Value;
-        options.DatabaseName = dbNameResponse.Parameter.Value;
+        var settings = new MongoDBSettings
+        {
+            ConnectionString = dbConnectionString,
+            DatabaseName = dbName
+        };
+        return settings;
     });
 
     builder.Services.AddSingleton<IMongoClient>(sp =>
     {
-        var settings = sp.GetRequiredService<IOptions<MongoDBSettings>>().Value;
+        var settings = sp.GetRequiredService<IMongoDBSettings>();
         return new MongoClient(settings.ConnectionString);
     });
-}
 
-async Task ConfigureSQS(WebApplicationBuilder builder)
-{
-    var ssmClient = builder.Services.BuildServiceProvider().GetRequiredService<IAmazonSimpleSystemsManagement>();
-    var sqsUrlResponse = await ssmClient.GetParameterAsync(new GetParameterRequest { Name = sqsUrlPath, WithDecryption = true });
-
-    builder.Services.Configure<SQSSettings>(options =>
+    builder.Services.AddScoped(sp =>
     {
-        options.QueueUrl = sqsUrlResponse.Parameter.Value;
+        var client = sp.GetRequiredService<IMongoClient>();
+        var settings = sp.GetRequiredService<IMongoDBSettings>();
+        return client.GetDatabase(settings.DatabaseName);
     });
 }
