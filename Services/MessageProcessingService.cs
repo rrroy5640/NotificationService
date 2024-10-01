@@ -38,6 +38,7 @@ namespace NotificationService.Services
                     if (message != null)
                     {
                         await ProcessMessageAsync(message);
+                        _logger.LogInformation($"Message processed: {message.MessageType}");
                     }
                 }
                 catch (Exception ex)

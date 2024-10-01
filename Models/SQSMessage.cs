@@ -5,7 +5,7 @@ namespace NotificationService.Models
     public class SQSMessage
     {
         public required string MessageType { get; set; }
-        public required object Payload { get; set; }
+        public required string Payload { get; set; }
         public string ToJson()
         {
             return JsonSerializer.Serialize(this);
