@@ -16,16 +16,16 @@ namespace NotificationService.Services
 
         public MessageProcessingService(
             IAmazonSQS sqsClient, 
-            IOptions<SQSSettings> sqsSettings,
-            IMongoClient mongoClient, 
-            IOptions<MongoDBSettings> mongoSettings,
+            ISQSSettings sqsSettings,
+            IMongoDBSettings mongoSettings,
             ILogger<MessageProcessingService> logger)
         {
             _sqsClient = sqsClient;
-            _queueUrl = sqsSettings.Value.QueueUrl;
-            var database = mongoClient.GetDatabase(mongoSettings.Value.DatabaseName);
-            _messages = database.GetCollection<SQSMessage>("messages");
+            _queueUrl = sqsSettings.QueueUrl ;
             _logger = logger;
+            var mongoClient = new MongoClient(mongoSettings.ConnectionString);
+            var mongoDatabase = mongoClient.GetDatabase(mongoSettings.DatabaseName);
+            _messages = mongoDatabase.GetCollection<SQSMessage>("Messages");
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -49,7 +49,7 @@ namespace NotificationService.Services
             }
         }
 
-        private async Task<SQSMessage> ReceiveMessageAsync(CancellationToken cancellationToken)
+        private async Task<SQSMessage?> ReceiveMessageAsync(CancellationToken cancellationToken)
         {
             var request = new ReceiveMessageRequest
             {
@@ -79,9 +79,7 @@ namespace NotificationService.Services
             {
                 case "SendEmail":
                     await InsertMessageAsync(message);
-                    // 这里将来可以添加发送邮件的逻辑
                     break;
-                // 添加其他消息类型的处理逻辑
                 default:
                     _logger.LogWarning($"Unknown message type: {message.MessageType}");
                     break;

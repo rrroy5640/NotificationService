@@ -31,11 +31,23 @@ if (string.IsNullOrEmpty(dbConnectionStringPath) || string.IsNullOrEmpty(dbNameP
     throw new Exception("Missing configuration");
 }
 
-var dbConnectionString = await ssmClient.GetParameterAsync(new GetParameterRequest { Name = dbConnectionStringPath });
-var dbName = await ssmClient.GetParameterAsync(new GetParameterRequest { Name = dbNamePath });
-var sqsUrl = await ssmClient.GetParameterAsync(new GetParameterRequest { Name = sqsUrlPath });
+try
+{
+    var dbConnectionString = (await ssmClient.GetParameterAsync(new GetParameterRequest { Name = dbConnectionStringPath, WithDecryption = true })).Parameter.Value;
+    var dbName = (await ssmClient.GetParameterAsync(new GetParameterRequest { Name = dbNamePath, WithDecryption = true })).Parameter.Value;
+    var sqsUrl = (await ssmClient.GetParameterAsync(new GetParameterRequest { Name = sqsUrlPath })).Parameter.Value;
+    Console.WriteLine($"DB Connection String: {dbConnectionString}");
+    Console.WriteLine($"DB Name: {dbName}");
+    Console.WriteLine($"SQS URL: {sqsUrl}");
 
-await ConfigureDatabase(builder, dbConnectionString.Parameter.Value, dbName.Parameter.Value);
+    ConfigureDatabase(builder, dbConnectionString, dbName);
+    ConfigureSQS(builder, sqsUrl);
+}
+catch (Exception ex)
+{
+    throw new Exception("Error retrieving parameters from AWS Parameter Store", ex);
+}
+
 builder.Services.AddHostedService<MessageProcessingService>();
 
 var app = builder.Build();
@@ -50,7 +62,8 @@ app.UseHttpsRedirection();
 
 app.Run();
 
-async Task ConfigureDatabase(WebApplicationBuilder builder, string dbConnectionString, string dbName){
+void ConfigureDatabase(WebApplicationBuilder builder, string dbConnectionString, string dbName)
+{
     builder.Services.AddSingleton<IMongoDBSettings>(sp =>
     {
         var settings = new MongoDBSettings
@@ -72,5 +85,23 @@ async Task ConfigureDatabase(WebApplicationBuilder builder, string dbConnectionS
         var client = sp.GetRequiredService<IMongoClient>();
         var settings = sp.GetRequiredService<IMongoDBSettings>();
         return client.GetDatabase(settings.DatabaseName);
+    });
+}
+
+void ConfigureSQS(WebApplicationBuilder builder, string sqsUrl)
+{
+    builder.Services.Configure<SQSSettings>(settings =>
+    {
+        settings.QueueUrl = sqsUrl;
+    });
+
+    builder.Services.AddSingleton<ISQSSettings>(sp =>
+        sp.GetRequiredService<IOptions<SQSSettings>>().Value
+    );
+
+    builder.Services.AddSingleton<IAmazonSQS>(sp =>
+    {
+        var options = new AmazonSQSConfig { ServiceURL = sqsUrl };
+        return new AmazonSQSClient(options);
     });
 }

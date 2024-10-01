@@ -1,6 +1,10 @@
 namespace NotificationService.Models{
-    public class SQSSettings{
-        public string? QueueUrl { get; set; }
-        public string? Region { get; set; }
+    public class SQSSettings: ISQSSettings{
+        public required string QueueUrl { get; set; }
+    }
+
+    public interface ISQSSettings
+    {
+        string QueueUrl { get; set; }
     }
 }
